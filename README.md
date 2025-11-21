@@ -3,12 +3,13 @@
 一个基于 Spring Boot 的轻量网页工具：从多个 MySQL 数据源选择库/表，在页面左下配置 Doris 建表规则，右侧实时生成并预览 SQL，支持一键执行到 Doris。
 
 ## 特性
-- 多数据源：选择数据源 → 库 → 表，联动加载字段
+- 多数据源：选择数据源 → 库 → 表，联动加载字段（字段默认全选）
 - Doris 生成：Unique 模型、分区键置前（dt/mt/yt）、分布列选择、Sequence 列选择、倒排索引生成
-- 命名规范：非分区 `ods_<库>_<表>`；分区后缀 `di/df/mi/mf`
+- 命名规范：非分区 `ods_<库>_<表>`；分区后缀按分区类型与同步方式自动映射
 - 类型映射：`varchar(n)`→`varchar(3n)`（超限转 `string`）、`bit/boolean`→`int`、`datetime/timestamp`→`datetime(6)` 等
-- 表注释：默认使用 MySQL 表注释并支持在页面修改
+- 表注释：默认使用 MySQL 表注释并支持在页面修改（预览与执行保持一致）
 - 一键执行：直接用 Doris FE 的 MySQL 协议端口执行 DDL
+- 紧凑界面：左侧配置区更紧凑、右侧预览高度适中，整体信息密度提升
 
 ## 环境要求
 - JDK 8
@@ -29,11 +30,16 @@
 - 左上：选择数据源、库、表，字段默认全选；自动勾选主键为 Unique Key（无主键则不勾选）
 - 左下：
   - 勾选是否分区，选择分区类型（DAY/MONTH/YEAR）
-  - 选择同步后缀（di/df/mi/mf）
+  - 同步方式下拉仅两项：`增量`/`全量`（自动映射后缀）
   - 选择分布列（默认第一个 Unique Key）
   - 选择 Sequence 列（默认优先 `insert_time`→`update_time`→`ts`）
   - 勾选倒排索引字段；可编辑“表注释”（初始为 MySQL 表注释）
-- 右侧：点击“预览SQL”即可刷新生成的建表语句；可复制或执行到 Doris
+- 右侧：点击“预览SQL”刷新生成的建表语句；可复制或执行到 Doris
+
+### 后缀映射规则
+- DAY：增量 → `di`；全量 → `df`
+- MONTH：增量 → `mi`；全量 → `mf`
+- YEAR：增量 → `yi`；全量 → `yf`
 
 ## 主要接口
 - 列出数据源：`GET /api/mysql/datasources`
@@ -43,6 +49,11 @@
 - 表注释：`GET /api/mysql/table-comment?ds=...&db=...&table=...`
 - 生成 SQL：`POST /api/sql/generate`
 - 执行到 Doris：`POST /api/doris/sql`
+
+### SQL 生成要点
+- 分区表：分区键必须包含在 Unique Key 中且位于最前（`dt/mt/yt`）
+- 分布策略：`DISTRIBUTED BY HASH(<分布列>) BUCKETS AUTO`
+- 属性：始终包含 `"enable_unique_key_merge_on_write" = "true"`；分区开启时包含动态分区属性；Sequence 由页面选择生成 `function_column.sequence_col`
 
 ## Doris 连接说明
 - 使用 Doris FE 的 MySQL 协议端口（示例：`49010`），库名例如 `ods`
