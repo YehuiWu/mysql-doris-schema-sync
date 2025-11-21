@@ -12,7 +12,8 @@ public class SqlGeneratorService {
     String db = input.mysqlDb;
     String table = input.mysqlTable;
     String suffix = tableSuffix(input);
-    String dorisTable = suffix == null ? ("ods_" + db + "_" + table) : ("ods_" + db + "_" + table + "_" + suffix);
+    String baseName = suffix == null ? ("ods_" + db + "_" + table) : ("ods_" + db + "_" + table + "_" + suffix);
+    String dorisTable = "`ods`." + "`" + baseName + "`";
 
     List<String> fields = input.fields == null || input.fields.isEmpty()
         ? mysqlColumns.stream().map(c -> c.name).collect(Collectors.toList())
@@ -22,21 +23,20 @@ public class SqlGeneratorService {
 
     List<String> pk = new ArrayList<>(input.uniqueKeys);
     pk = pk.stream().filter(fieldSet::contains).collect(Collectors.toList());
-    if (input.partitioned) {
-      String pcol = partitionCol(input.partitionType);
-      if (!pk.contains(pcol)) pk.add(0, pcol);
-      else {
-        pk.remove(pcol);
-        pk.add(0, pcol);
-      }
+    String pcol = input.partitioned ? partitionCol(input.partitionType) : null;
+    if (input.partitioned && pcol != null && pk.contains(pcol)) {
+      pk = pk.stream().filter(k -> !k.equals(pcol)).collect(Collectors.toList());
     }
 
     List<String> orderCols = new ArrayList<>();
-    if (input.partitioned) orderCols.add(partitionCol(input.partitionType));
-    orderCols.addAll(pk.stream().filter(c -> !orderCols.contains(c)).collect(Collectors.toList()));
+    if (input.partitioned && pcol != null) orderCols.add(pcol);
+    for (ColumnInfo c : colsToUse) {
+      if (pk.contains(c.name) && !orderCols.contains(c.name)) orderCols.add(c.name);
+    }
 
     StringBuilder sb = new StringBuilder();
-    sb.append("CREATE TABLE IF NOT EXISTS ").append(dorisTable).append(" (\n");
+    sb.append("CREATE TABLE IF NOT EXISTS ").append(dorisTable.replace(".", "."))
+        .append(" (\n");
     if (input.partitioned) {
       sb.append("  ").append(partitionCol(input.partitionType)).append(" date");
       String pcmt = input.partitionType.equals("DAY") ? "日分区" : input.partitionType.equals("MONTH") ? "月分区" : "年分区";
@@ -64,19 +64,21 @@ public class SqlGeneratorService {
     sb.append(")\n");
     if (input.tableComment != null && !input.tableComment.isEmpty()) sb.append("COMMENT '").append(escapeQuote(input.tableComment)).append("'\n");
     if (input.partitioned) {
-      String pcol = partitionCol(input.partitionType);
-      sb.append("PARTITION BY RANGE(`").append(pcol).append("`)()\n");
+      String partCol = partitionCol(input.partitionType);
+      sb.append("PARTITION BY RANGE(`").append(partCol).append("`)()\n");
     }
     String distCol = input.distributionKey == null ? orderCols.get(0) : input.distributionKey;
     if (!fieldSet.contains(distCol)) distCol = orderCols.get(0);
     sb.append("DISTRIBUTED BY HASH(`").append(distCol).append("`) BUCKETS AUTO\n");
     sb.append("PROPERTIES (\n");
     if (input.partitioned) {
+      String dStart = (input.dynamicStart != null && !input.dynamicStart.isEmpty()) ? input.dynamicStart : "-2";
+      String dEnd = (input.dynamicEnd != null && !input.dynamicEnd.isEmpty()) ? input.dynamicEnd : "1";
       sb.append("  \"dynamic_partition.enable\" = \"true\",\n");
       sb.append("  \"dynamic_partition.time_unit\" = \"").append(input.partitionType).append("\",\n");
       sb.append("  \"dynamic_partition.time_zone\" = \"Asia/Shanghai\",\n");
-      sb.append("  \"dynamic_partition.start\" = \"-2\",\n");
-      sb.append("  \"dynamic_partition.end\" = \"1\",\n");
+      sb.append("  \"dynamic_partition.start\" = \"").append(dStart).append("\",\n");
+      sb.append("  \"dynamic_partition.end\" = \"").append(dEnd).append("\",\n");
       sb.append("  \"dynamic_partition.create_history_partition\" = \"false\",\n");
       sb.append("  \"dynamic_partition.prefix\" = \"p\",\n");
     }
@@ -104,9 +106,9 @@ public class SqlGeneratorService {
   private String tableSuffix(Input in) {
     if (!in.partitioned) return null;
     switch (in.partitionType) {
-      case "DAY": return in.syncType.equals("df") ? "df" : "di";
-      case "MONTH": return in.syncType.equals("mf") ? "mf" : "mi";
-      case "YEAR": return null;
+      case "DAY": return "full".equals(in.syncType) ? "df" : "di";
+      case "MONTH": return "full".equals(in.syncType) ? "mf" : "mi";
+      case "YEAR": return "full".equals(in.syncType) ? "yf" : "yi";
       default: return null;
     }
   }
@@ -124,5 +126,7 @@ public class SqlGeneratorService {
     public List<String> indexes = new ArrayList<>();
     public String tableComment;
     public List<String> fields = new ArrayList<>();
+    public String dynamicStart;
+    public String dynamicEnd;
   }
 }

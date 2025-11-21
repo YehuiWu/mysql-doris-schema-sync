@@ -4,37 +4,59 @@
   <meta charset="UTF-8" />
   <title>MySQL → Doris 建表助手</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; }
-    header { padding: 10px 16px; background: #1f2937; color: #fff; }
-    .container { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
-    .panel { border: 1px solid #ddd; border-radius: 6px; padding: 12px; }
-    .panel h3 { margin: 0 0 8px; }
-    label { display: block; margin-top: 8px; }
-    select, input[type="text"] { width: 100%; padding: 6px; margin-top: 4px; }
-    textarea { width: 100%; height: 460px; }
+    :root { --bg:#f7f8fa; --card:#ffffff; --text:#111827; --muted:#6b7280; --accent:#2563eb; --border:#e5e7eb; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; font-size: 14px; color: var(--text); background: var(--bg); }
+    header { padding: 10px 16px; background: #111827; color: #fff; display:flex; align-items:center; justify-content:space-between; }
+    .brand { font-weight:600; letter-spacing:.3px; }
+    .container { display: grid; grid-template-columns: 380px 1fr; gap: 12px; padding: 12px; }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+    .panel h3 { margin: 0 0 8px; font-size: 16px; }
+    label { display: block; margin-top: 6px; }
+    select, input[type="text"], input[type="number"] { width: 100%; padding: 8px; margin-top: 4px; border:1px solid var(--border); border-radius:8px; background:#fff; }
+    select:focus, input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+    textarea { width: 100%; height: 320px; border:1px solid var(--border); border-radius:8px; padding:10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .cols { max-height: 160px; overflow:auto; border:1px solid #eee; padding:6px; }
+    .cols { max-height: 140px; overflow:auto; border:1px solid var(--border); border-radius:8px; padding:8px; background:#fff; }
     .actions { display:flex; gap:8px; margin-top:8px; }
-    button { padding: 6px 10px; }
+    .btn { padding: 8px 12px; font-size: 13px; border-radius:8px; border:1px solid var(--border); background:#fff; color:var(--text); cursor:pointer; }
+    .btn:hover { border-color: var(--accent); }
+    .btn-primary { background: var(--accent); color:#fff; border-color: var(--accent); }
+    .toolbar { display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-top:6px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .inline { display:flex; gap:8px; align-items:center; }
+    .badge { display:inline-block; padding:2px 6px; border-radius:999px; font-size:12px; background:#eef2ff; color:#3730a3; }
+    #loading { position:fixed; inset:0; background:rgba(255,255,255,.6); display:none; align-items:center; justify-content:center; z-index:9999; }
+    .spinner { width:28px; height:28px; border:3px solid #93c5fd; border-top-color:#2563eb; border-radius:50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .grid-3 { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; }
   </style>
   <script>
     async function fetchJSON(url) { const r = await fetch(url); return await r.json(); }
     async function fetchText(url) { const r = await fetch(url); return await r.text(); }
     async function postText(url, data) { const r = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(data)}); return await r.text(); }
-    let state = { ds:null, db:null, table:null, columns:[], cfg:{ partitioned:false, partitionType:'DAY', syncType:'di', uniqueKeys:[], distributionKey:null, sequenceCol:null, indexes:[], tableComment:'', fields:[] } };
+    let state = { ds:null, db:null, table:null, columns:[], cfg:{ partitioned:false, partitionType:'DAY', syncType:'inc', uniqueKeys:[], distributionKey:null, sequenceCol:null, indexes:[], tableComment:'', fields:[], dynamicStart:'-2', dynamicEnd:'1' } };
+    function togglePartitionOpts(){ const el = document.getElementById('partitionOpts'); const el2 = document.getElementById('partitionOpts2'); if (el) el.style.display = state.cfg.partitioned ? '' : 'none'; if (el2) el2.style.display = state.cfg.partitioned ? '' : 'none'; }
+    function showLoading(on){ const el = document.getElementById('loading'); if (el) el.style.display = on ? 'flex' : 'none'; }
+    function setExecEnabled(){ const sql = document.getElementById('sql').value.trim(); document.getElementById('exec').disabled = sql.length === 0; }
     async function init() {
+      showLoading(true);
       const ds = await fetchJSON('/api/mysql/datasources');
       const dsSel = document.getElementById('ds');
       dsSel.innerHTML = '<option value="">选择数据源</option>' + Array.from(ds).map(x=>`<option>${x}</option>`).join('');
       dsSel.onchange = async () => { state.ds = dsSel.value; await loadDatabases(); };
       document.getElementById('db').onchange = async () => { state.db = document.getElementById('db').value; await loadTables(); };
       document.getElementById('table').onchange = async () => { state.table = document.getElementById('table').value; await loadColumns(); };
-      document.getElementById('partitioned').onchange = () => { state.cfg.partitioned = document.getElementById('partitioned').checked; updatePreview(); };
+      document.getElementById('partitionedSel').onchange = () => { const v = document.getElementById('partitionedSel').value; state.cfg.partitioned = (v === 'part'); togglePartitionOpts(); updatePreview(); };
       document.getElementById('ptype').onchange = () => { state.cfg.partitionType = document.getElementById('ptype').value; updatePreview(); };
-      document.getElementById('stype').onchange = () => { state.cfg.syncType = document.getElementById('stype').value; updatePreview(); };
+      document.getElementById('sync').onchange = () => { state.cfg.syncType = document.getElementById('sync').value; updatePreview(); };
+      document.getElementById('dpStart').oninput = () => { state.cfg.dynamicStart = document.getElementById('dpStart').value; updatePreview(); };
+      document.getElementById('dpEnd').oninput = () => { state.cfg.dynamicEnd = document.getElementById('dpEnd').value; updatePreview(); };
       document.getElementById('tableComment').oninput = () => { state.cfg.tableComment = document.getElementById('tableComment').value; updatePreview(); };
       document.getElementById('exec').onclick = async () => { const sql = document.getElementById('sql').value; const res = await fetch('/api/doris/sql',{ method:'POST', headers:{ 'Content-Type':'text/plain' }, body: sql}); const j = await res.json(); alert(j.success ? '执行成功' : ('执行失败: ' + j.message)); };
-      document.getElementById('copy').onclick = () => { const ta = document.getElementById('sql'); ta.select(); document.execCommand('copy'); };
+      document.getElementById('copy').onclick = async () => { const txt = document.getElementById('sql').value; if (navigator.clipboard) { await navigator.clipboard.writeText(txt); } else { const ta = document.getElementById('sql'); ta.select(); document.execCommand('copy'); } };
+      togglePartitionOpts();
+      showLoading(false);
     }
     async function loadDatabases() {
       const dbs = await fetchJSON(`/api/mysql/databases?ds=${state.ds}`);
@@ -43,6 +65,13 @@
     }
     async function loadTables() {
       const tbs = await fetchJSON(`/api/mysql/tables?ds=${state.ds}&db=${state.db}`);
+      state.tables = tbs;
+      const tbSel = document.getElementById('table');
+      tbSel.innerHTML = '<option value="">选择表</option>' + tbs.map(x=>`<option>${x}</option>`).join('');
+    }
+    function filterTables() {
+      const q = document.getElementById('tbFilter').value.trim().toLowerCase();
+      const tbs = (state.tables||[]).filter(x=>x.toLowerCase().includes(q));
       const tbSel = document.getElementById('table');
       tbSel.innerHTML = '<option value="">选择表</option>' + tbs.map(x=>`<option>${x}</option>`).join('');
     }
@@ -54,6 +83,12 @@
       fbox.innerHTML = state.columns.map(c=>`<label><input type="checkbox" class="fld" data-col="${c.name}" checked> ${c.name}</label>`).join('');
       state.cfg.fields = state.columns.map(c=>c.name);
       document.querySelectorAll('.fld').forEach(el=>{ el.onchange=()=>{ const col = el.getAttribute('data-col'); if (el.checked) { if (!state.cfg.fields.includes(col)) state.cfg.fields.push(col); } else { state.cfg.fields = state.cfg.fields.filter(x=>x!==col); } updatePreview(); }; });
+      document.getElementById('colFilter').oninput = () => {
+        const q = document.getElementById('colFilter').value.trim().toLowerCase();
+        const cols = state.columns.filter(c=>c.name.toLowerCase().includes(q));
+        fbox.innerHTML = cols.map(c=>`<label><input type="checkbox" class="fld" data-col="${c.name}" ${state.cfg.fields.includes(c.name)?'checked':''}> ${c.name}</label>`).join('');
+        document.querySelectorAll('.fld').forEach(el=>{ el.onchange=()=>{ const col = el.getAttribute('data-col'); if (el.checked) { if (!state.cfg.fields.includes(col)) state.cfg.fields.push(col); } else { state.cfg.fields = state.cfg.fields.filter(x=>x!==col); } updatePreview(); }; });
+      };
       const distSel = document.getElementById('dist');
       distSel.innerHTML = '<option value="">选择分布列</option>' + state.columns.map(c=>`<option>${c.name}</option>`).join('');
       distSel.onchange = ()=>{ state.cfg.distributionKey = distSel.value || null; updatePreview(); };
@@ -63,6 +98,11 @@
       const idxSel = document.getElementById('idx');
       idxSel.innerHTML = state.columns.map(c=>`<label><input type="checkbox" class="ix" data-col="${c.name}"> ${c.name}</label>`).join('');
       document.querySelectorAll('.ix').forEach(el=>{ el.onchange=()=>{ const col = el.getAttribute('data-col'); if (el.checked) { if (!state.cfg.indexes.includes(col)) state.cfg.indexes.push(col); } else { state.cfg.indexes = state.cfg.indexes.filter(x=>x!==col); } updatePreview(); }; });
+      document.getElementById('fldAll').onclick = ()=>{ state.cfg.fields = state.columns.map(c=>c.name); renderColumns(); updatePreview(); };
+      document.getElementById('fldNone').onclick = ()=>{ state.cfg.fields = []; renderColumns(); updatePreview(); };
+      document.getElementById('idxAll').onclick = ()=>{ state.cfg.indexes = state.columns.map(c=>c.name); renderColumns(); updatePreview(); };
+      document.getElementById('idxNone').onclick = ()=>{ state.cfg.indexes = []; renderColumns(); updatePreview(); };
+      document.getElementById('ukAuto').onclick = ()=>{ const pks = state.columns.filter(c=>c.isPrimaryKey).map(c=>c.name); state.cfg.uniqueKeys = pks.length>0 ? pks : []; renderColumns(); updatePreview(); };
     }
     async function loadColumns() {
       state.columns = await fetchJSON(`/api/mysql/table-columns?ds=${state.ds}&db=${state.db}&table=${state.table}`);
@@ -73,6 +113,7 @@
       const seqCandidates = ['insert_time','update_time','ts'];
       const seqFound = state.columns.map(c=>c.name).find(n=>seqCandidates.includes(n));
       state.cfg.sequenceCol = seqFound || null;
+      document.getElementById('sync').value = state.cfg.syncType || 'inc';
       try {
         const tComment = await fetchText(`/api/mysql/table-comment?ds=${state.ds}&db=${state.db}&table=${state.table}`);
         if (!state.cfg.tableComment || state.cfg.tableComment.length===0) {
@@ -85,10 +126,11 @@
     }
     async function updatePreview() {
       if (!state.ds || !state.db || !state.table) { alert('请先选择数据源、库和表'); return; }
-      const payload = { mysqlDs: state.ds, mysqlDb: state.db, mysqlTable: state.table, partitioned: state.cfg.partitioned, partitionType: state.cfg.partitionType, syncType: state.cfg.syncType, uniqueKeys: state.cfg.uniqueKeys, distributionKey: state.cfg.distributionKey, sequenceCol: state.cfg.sequenceCol, indexes: state.cfg.indexes, tableComment: state.cfg.tableComment, fields: state.cfg.fields };
+      const payload = { mysqlDs: state.ds, mysqlDb: state.db, mysqlTable: state.table, partitioned: state.cfg.partitioned, partitionType: state.cfg.partitionType, syncType: state.cfg.syncType, uniqueKeys: state.cfg.uniqueKeys, distributionKey: state.cfg.distributionKey, sequenceCol: state.cfg.sequenceCol, indexes: state.cfg.indexes, tableComment: state.cfg.tableComment, fields: state.cfg.fields, dynamicStart: state.cfg.dynamicStart, dynamicEnd: state.cfg.dynamicEnd };
       try {
         const sql = await postText('/api/sql/generate', payload);
         document.getElementById('sql').value = sql;
+        setExecEnabled();
       } catch(e) {
         alert('生成SQL失败');
       }
@@ -98,34 +140,59 @@
   </head>
 <body>
   <header>
-    <h2>MySQL → Doris 建表助手</h2>
+    <div class="brand">MySQL → Doris 建表助手</div>
+    <div class="muted">数据建表配置与一键执行</div>
   </header>
   <div class="container">
     <div class="panel">
       <h3>MySQL 数据源</h3>
       <label>数据源<select id="ds"></select></label>
       <label>库<select id="db"></select></label>
-      <label>表<select id="table"></select></label>
+      <div class="inline">
+        <div style="flex:1"><label>表<select id="table"></select></label></div>
+        <div style="width:160px"><label>搜索<input type="text" id="tbFilter" placeholder="输入关键字" oninput="filterTables()"/></label></div>
+      </div>
       <h4>Unique Key 字段</h4>
       <div class="cols" id="cols"></div>
       <h4>字段选择（默认全选）</h4>
+      <div class="toolbar">
+        <button class="btn" id="fldAll">全选</button>
+        <button class="btn" id="fldNone">清空</button>
+      </div>
+      <label>筛选<input type="text" id="colFilter" placeholder="筛选字段"/></label>
       <div class="cols" id="fields"></div>
     </div>
     <div class="panel">
       <h3>Doris 表配置</h3>
-      <label><input type="checkbox" id="partitioned"/> 分区表</label>
-      <div class="row">
+      <label>分区<select id="partitionedSel"><option value="none">非分区</option><option value="part">分区</option></select></label>
+      <div class="row" id="partitionOpts">
         <div>
           <label>分区类型<select id="ptype"><option value="DAY">DAY</option><option value="MONTH">MONTH</option><option value="YEAR">YEAR</option></select></label>
         </div>
         <div>
-          <label>同步方式<select id="stype"><option value="di">di</option><option value="df">df</option><option value="mi">mi</option><option value="mf">mf</option></select></label>
+          <label>同步方式<select id="sync"><option value="inc">增量</option><option value="full">全量</option></select></label>
+        </div>
+      </div>
+      <div class="row" id="partitionOpts2">
+        <div>
+          <label>动态分区起始偏移<input type="number" id="dpStart" value="-2"/></label>
+        </div>
+        <div>
+          <label>动态分区结束偏移<input type="number" id="dpEnd" value="1"/></label>
         </div>
       </div>
       <label>分布列<select id="dist"></select></label>
       <label>Sequence列<select id="seq"></select></label>
       <h4>倒排索引</h4>
+      <div class="toolbar">
+        <button class="btn" id="idxAll">全选</button>
+        <button class="btn" id="idxNone">清空</button>
+        <span class="badge">可选</span>
+      </div>
       <div id="idx" class="cols"></div>
+      <div class="toolbar">
+        <button class="btn" id="ukAuto">主键建议</button>
+      </div>
       <label>表注释<input type="text" id="tableComment"/></label>
     </div>
   </div>
@@ -133,10 +200,11 @@
     <h3>SQL 预览与执行</h3>
     <textarea id="sql"></textarea>
     <div class="actions">
-      <button id="preview" onclick="updatePreview()">预览SQL</button>
-      <button id="copy">复制SQL</button>
-      <button id="exec">执行到Doris</button>
+      <button class="btn" id="preview" onclick="updatePreview()">预览SQL</button>
+      <button class="btn" id="copy">复制SQL</button>
+      <button class="btn btn-primary" id="exec">执行到Doris</button>
     </div>
   </div>
+  <div id="loading"><div class="spinner"></div></div>
 </body>
 </html>

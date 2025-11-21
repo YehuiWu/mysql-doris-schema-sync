@@ -5,11 +5,12 @@
 ## 特性
 - 多数据源：选择数据源 → 库 → 表，联动加载字段（字段默认全选）
 - Doris 生成：Unique 模型、分区键置前（dt/mt/yt）、分布列选择、Sequence 列选择、倒排索引生成
-- 命名规范：非分区 `ods_<库>_<表>`；分区后缀按分区类型与同步方式自动映射
+- 命名规范：非分区 `ods_<库>_<表>`；分区后缀按分区类型与同步方式自动映射（DAY→di/df，MONTH→mi/mf，YEAR→yi/yf）
+- 库前缀：建表统一前缀 `ods.`，最终表名形如 `ods.ods_<库>_<表>_<后缀>`
 - 类型映射：`varchar(n)`→`varchar(3n)`（超限转 `string`）、`bit/boolean`→`int`、`datetime/timestamp`→`datetime(6)` 等
 - 表注释：默认使用 MySQL 表注释并支持在页面修改（预览与执行保持一致）
 - 一键执行：直接用 Doris FE 的 MySQL 协议端口执行 DDL
-- 紧凑界面：左侧配置区更紧凑、右侧预览高度适中，整体信息密度提升
+- 友好界面：表搜索、字段筛选、索引/字段全选与清空、主键建议、复制优化、执行按钮禁用状态
 
 ## 环境要求
 - JDK 8
@@ -29,8 +30,11 @@
 ## 使用步骤
 - 左上：选择数据源、库、表，字段默认全选；自动勾选主键为 Unique Key（无主键则不勾选）
 - 左下：
-  - 勾选是否分区，选择分区类型（DAY/MONTH/YEAR）
-  - 同步方式下拉仅两项：`增量`/`全量`（自动映射后缀）
+  - 分区方式下拉：`非分区`/`分区`
+  - 当选择`分区`：
+    - 分区类型（DAY/MONTH/YEAR）
+    - 同步方式下拉：`增量`/`全量`（自动映射后缀）
+    - 动态分区偏移：`start` 与 `end` 可配置（默认 `-2` 与 `1`）
   - 选择分布列（默认第一个 Unique Key）
   - 选择 Sequence 列（默认优先 `insert_time`→`update_time`→`ts`）
   - 勾选倒排索引字段；可编辑“表注释”（初始为 MySQL 表注释）
@@ -53,11 +57,17 @@
 ### SQL 生成要点
 - 分区表：分区键必须包含在 Unique Key 中且位于最前（`dt/mt/yt`）
 - 分布策略：`DISTRIBUTED BY HASH(<分布列>) BUCKETS AUTO`
-- 属性：始终包含 `"enable_unique_key_merge_on_write" = "true"`；分区开启时包含动态分区属性；Sequence 由页面选择生成 `function_column.sequence_col`
+- 属性：
+  - 始终包含 `"enable_unique_key_merge_on_write" = "true"`
+  - 分区开启时包含动态分区属性：`dynamic_partition.enable/time_unit/time_zone/start/end/create_history_partition/prefix`
+  - `start/end` 由页面填写的偏移生成，默认 `-2/1`
+  - Sequence 由页面选择生成 `function_column.sequence_col`
 
 ## Doris 连接说明
 - 使用 Doris FE 的 MySQL 协议端口（示例：`49010`），库名例如 `ods`
 - 执行前请确保目标库存在
+
+> 若执行失败，请检查：连接信息（host/port/user/password）、账号是否有 DDL 权限、目标库 `ods` 是否存在、属性与 Doris 版本兼容。
 
 ## 安全与配置
 - `application.yml` 不会被提交到 Git（见 `.gitignore`）；提供 `application-example.yml` 作为模板
