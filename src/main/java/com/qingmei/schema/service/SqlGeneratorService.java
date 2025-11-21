@@ -1,5 +1,6 @@
 package com.qingmei.schema.service;
 
+import com.qingmei.schema.config.AppConfig;
 import com.qingmei.schema.service.MySqlMetadataService.ColumnInfo;
 import org.springframework.stereotype.Service;
 
@@ -8,12 +9,18 @@ import java.util.stream.Collectors;
 
 @Service
 public class SqlGeneratorService {
+  private final AppConfig appConfig;
+
+  public SqlGeneratorService(AppConfig appConfig) {
+    this.appConfig = appConfig;
+  }
   public String generateSql(Input input, List<ColumnInfo> mysqlColumns) {
     String db = input.mysqlDb;
     String table = input.mysqlTable;
     String suffix = tableSuffix(input);
     String baseName = suffix == null ? ("ods_" + db + "_" + table) : ("ods_" + db + "_" + table + "_" + suffix);
-    String dorisTable = "`ods`." + "`" + baseName + "`";
+    String dorisDb = appConfig.getDoris() != null && appConfig.getDoris().getDatabase() != null ? appConfig.getDoris().getDatabase() : "ods";
+    String dorisTable = "`" + dorisDb + "`." + "`" + baseName + "`";
 
     List<String> fields = input.fields == null || input.fields.isEmpty()
         ? mysqlColumns.stream().map(c -> c.name).collect(Collectors.toList())
@@ -69,18 +76,25 @@ public class SqlGeneratorService {
     }
     String distCol = input.distributionKey == null ? orderCols.get(0) : input.distributionKey;
     if (!fieldSet.contains(distCol)) distCol = orderCols.get(0);
-    sb.append("DISTRIBUTED BY HASH(`").append(distCol).append("`) BUCKETS AUTO\n");
+    if (input.bucketCount != null && input.bucketCount > 0) {
+      sb.append("DISTRIBUTED BY HASH(`").append(distCol).append("`) BUCKETS ").append(input.bucketCount).append("\n");
+    } else {
+      sb.append("DISTRIBUTED BY HASH(`").append(distCol).append("`) BUCKETS AUTO\n");
+    }
     sb.append("PROPERTIES (\n");
     if (input.partitioned) {
       String dStart = (input.dynamicStart != null && !input.dynamicStart.isEmpty()) ? input.dynamicStart : "-2";
       String dEnd = (input.dynamicEnd != null && !input.dynamicEnd.isEmpty()) ? input.dynamicEnd : "1";
       sb.append("  \"dynamic_partition.enable\" = \"true\",\n");
       sb.append("  \"dynamic_partition.time_unit\" = \"").append(input.partitionType).append("\",\n");
-      sb.append("  \"dynamic_partition.time_zone\" = \"Asia/Shanghai\",\n");
+      String tz = (input.dpTimeZone != null && !input.dpTimeZone.isEmpty()) ? input.dpTimeZone : "Asia/Shanghai";
+      sb.append("  \"dynamic_partition.time_zone\" = \"").append(tz).append("\",\n");
       sb.append("  \"dynamic_partition.start\" = \"").append(dStart).append("\",\n");
       sb.append("  \"dynamic_partition.end\" = \"").append(dEnd).append("\",\n");
-      sb.append("  \"dynamic_partition.create_history_partition\" = \"false\",\n");
-      sb.append("  \"dynamic_partition.prefix\" = \"p\",\n");
+      String createHistory = (input.dpCreateHistory != null && input.dpCreateHistory) ? "true" : "false";
+      String dpPrefix = (input.dpPrefix != null && !input.dpPrefix.isEmpty()) ? input.dpPrefix : "p";
+      sb.append("  \"dynamic_partition.create_history_partition\" = \"").append(createHistory).append("\",\n");
+      sb.append("  \"dynamic_partition.prefix\" = \"").append(dpPrefix).append("\",\n");
     }
     if (input.sequenceCol != null && !input.sequenceCol.isEmpty() && (input.sequenceCol.equals(partitionCol(input.partitionType)) || fieldSet.contains(input.sequenceCol))) {
       sb.append("  \"function_column.sequence_col\" = \"").append(input.sequenceCol).append("\",\n");
@@ -128,5 +142,9 @@ public class SqlGeneratorService {
     public List<String> fields = new ArrayList<>();
     public String dynamicStart;
     public String dynamicEnd;
+    public String dpPrefix;
+    public Boolean dpCreateHistory;
+    public String dpTimeZone;
+    public Integer bucketCount;
   }
 }

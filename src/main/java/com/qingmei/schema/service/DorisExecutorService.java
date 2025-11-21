@@ -21,7 +21,9 @@ public class DorisExecutorService {
     try (Connection conn = DriverManager.getConnection(url, d.getUsername(), d.getPassword());
          Statement st = conn.createStatement()) {
       boolean ok = st.execute(sql);
-      return new ExecResult(true, ok ? "" : "");
+      return new ExecResult(true, ok ? "执行成功" : "执行完成");
+    } catch (Exception e) {
+      return new ExecResult(false, e.getMessage());
     }
   }
 

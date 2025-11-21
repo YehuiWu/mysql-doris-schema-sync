@@ -35,8 +35,8 @@
     async function fetchJSON(url) { const r = await fetch(url); return await r.json(); }
     async function fetchText(url) { const r = await fetch(url); return await r.text(); }
     async function postText(url, data) { const r = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(data)}); return await r.text(); }
-    let state = { ds:null, db:null, table:null, columns:[], cfg:{ partitioned:false, partitionType:'DAY', syncType:'inc', uniqueKeys:[], distributionKey:null, sequenceCol:null, indexes:[], tableComment:'', fields:[], dynamicStart:'-2', dynamicEnd:'1' } };
-    function togglePartitionOpts(){ const el = document.getElementById('partitionOpts'); const el2 = document.getElementById('partitionOpts2'); if (el) el.style.display = state.cfg.partitioned ? '' : 'none'; if (el2) el2.style.display = state.cfg.partitioned ? '' : 'none'; }
+    let state = { ds:null, db:null, table:null, columns:[], cfg:{ partitioned:false, partitionType:'DAY', syncType:'inc', uniqueKeys:[], distributionKey:null, sequenceCol:null, indexes:[], tableComment:'', fields:[], dynamicStart:'-2', dynamicEnd:'1', dpPrefix:'p', dpTimeZone:'Asia/Shanghai', dpCreateHistory:false, bucketCount:null } };
+    function togglePartitionOpts(){ const el = document.getElementById('partitionOpts'); const el2 = document.getElementById('partitionOpts2'); const el3 = document.getElementById('partitionOpts3'); const el4 = document.getElementById('partitionOpts4'); if (el) el.style.display = state.cfg.partitioned ? '' : 'none'; if (el2) el2.style.display = state.cfg.partitioned ? '' : 'none'; if (el3) el3.style.display = state.cfg.partitioned ? '' : 'none'; if (el4) el4.style.display = state.cfg.partitioned ? '' : 'none'; }
     function showLoading(on){ const el = document.getElementById('loading'); if (el) el.style.display = on ? 'flex' : 'none'; }
     function setExecEnabled(){ const sql = document.getElementById('sql').value.trim(); document.getElementById('exec').disabled = sql.length === 0; }
     async function init() {
@@ -52,6 +52,10 @@
       document.getElementById('sync').onchange = () => { state.cfg.syncType = document.getElementById('sync').value; updatePreview(); };
       document.getElementById('dpStart').oninput = () => { state.cfg.dynamicStart = document.getElementById('dpStart').value; updatePreview(); };
       document.getElementById('dpEnd').oninput = () => { state.cfg.dynamicEnd = document.getElementById('dpEnd').value; updatePreview(); };
+      document.getElementById('dpPrefix').oninput = () => { state.cfg.dpPrefix = document.getElementById('dpPrefix').value; updatePreview(); };
+      document.getElementById('dpTZ').oninput = () => { state.cfg.dpTimeZone = document.getElementById('dpTZ').value; updatePreview(); };
+      document.getElementById('dpHistory').onchange = () => { state.cfg.dpCreateHistory = document.getElementById('dpHistory').value === 'true'; updatePreview(); };
+      document.getElementById('buckets').oninput = () => { const v = document.getElementById('buckets').value; state.cfg.bucketCount = v && v.length ? parseInt(v,10) : null; updatePreview(); };
       document.getElementById('tableComment').oninput = () => { state.cfg.tableComment = document.getElementById('tableComment').value; updatePreview(); };
       document.getElementById('exec').onclick = async () => { const sql = document.getElementById('sql').value; const res = await fetch('/api/doris/sql',{ method:'POST', headers:{ 'Content-Type':'text/plain' }, body: sql}); const j = await res.json(); alert(j.success ? '执行成功' : ('执行失败: ' + j.message)); };
       document.getElementById('copy').onclick = async () => { const txt = document.getElementById('sql').value; if (navigator.clipboard) { await navigator.clipboard.writeText(txt); } else { const ta = document.getElementById('sql'); ta.select(); document.execCommand('copy'); } };
@@ -126,7 +130,7 @@
     }
     async function updatePreview() {
       if (!state.ds || !state.db || !state.table) { alert('请先选择数据源、库和表'); return; }
-      const payload = { mysqlDs: state.ds, mysqlDb: state.db, mysqlTable: state.table, partitioned: state.cfg.partitioned, partitionType: state.cfg.partitionType, syncType: state.cfg.syncType, uniqueKeys: state.cfg.uniqueKeys, distributionKey: state.cfg.distributionKey, sequenceCol: state.cfg.sequenceCol, indexes: state.cfg.indexes, tableComment: state.cfg.tableComment, fields: state.cfg.fields, dynamicStart: state.cfg.dynamicStart, dynamicEnd: state.cfg.dynamicEnd };
+      const payload = { mysqlDs: state.ds, mysqlDb: state.db, mysqlTable: state.table, partitioned: state.cfg.partitioned, partitionType: state.cfg.partitionType, syncType: state.cfg.syncType, uniqueKeys: state.cfg.uniqueKeys, distributionKey: state.cfg.distributionKey, sequenceCol: state.cfg.sequenceCol, indexes: state.cfg.indexes, tableComment: state.cfg.tableComment, fields: state.cfg.fields, dynamicStart: state.cfg.dynamicStart, dynamicEnd: state.cfg.dynamicEnd, dpPrefix: state.cfg.dpPrefix, dpCreateHistory: state.cfg.dpCreateHistory, dpTimeZone: state.cfg.dpTimeZone, bucketCount: state.cfg.bucketCount };
       try {
         const sql = await postText('/api/sql/generate', payload);
         document.getElementById('sql').value = sql;
@@ -179,6 +183,22 @@
         </div>
         <div>
           <label>动态分区结束偏移<input type="number" id="dpEnd" value="1"/></label>
+        </div>
+      </div>
+      <div class="row" id="partitionOpts3">
+        <div>
+          <label>分区前缀<input type="text" id="dpPrefix" value="p"/></label>
+        </div>
+        <div>
+          <label>时区<input type="text" id="dpTZ" value="Asia/Shanghai"/></label>
+        </div>
+      </div>
+      <div class="row" id="partitionOpts4">
+        <div>
+          <label>创建历史分区<select id="dpHistory"><option value="false">否</option><option value="true">是</option></select></label>
+        </div>
+        <div>
+          <label>Bucket 数<input type="number" id="buckets" placeholder="留空为AUTO"/></label>
         </div>
       </div>
       <label>分布列<select id="dist"></select></label>

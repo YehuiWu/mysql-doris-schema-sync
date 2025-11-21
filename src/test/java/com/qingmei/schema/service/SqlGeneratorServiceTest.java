@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class SqlGeneratorServiceTest {
   @Test
   void generateDayPartitionUnique() {
-    SqlGeneratorService s = new SqlGeneratorService();
+    SqlGeneratorService s = new SqlGeneratorService(new com.qingmei.schema.config.AppConfig());
     SqlGeneratorService.Input in = new SqlGeneratorService.Input();
     in.mysqlDs = "pxs";
     in.mysqlDb = "shop";

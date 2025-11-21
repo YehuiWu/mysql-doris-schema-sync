@@ -63,11 +63,22 @@
   - `start/end` 由页面填写的偏移生成，默认 `-2/1`
   - Sequence 由页面选择生成 `function_column.sequence_col`
 
+### 分区属性配置项（前端可编辑）
+- 动态分区起始偏移（`dynamic_partition.start`）：默认 `-2`
+- 动态分区结束偏移（`dynamic_partition.end`）：默认 `1`
+- 分区前缀（`dynamic_partition.prefix`）：默认 `p`
+- 时区（`dynamic_partition.time_zone`）：默认 `Asia/Shanghai`
+- 是否创建历史分区（`dynamic_partition.create_history_partition`）：默认 `false`
+- Bucket 数：留空为 `BUCKETS AUTO`，填写为固定 `BUCKETS <n>`
+
 ## Doris 连接说明
 - 使用 Doris FE 的 MySQL 协议端口（示例：`49010`），库名例如 `ods`
 - 执行前请确保目标库存在
 
 > 若执行失败，请检查：连接信息（host/port/user/password）、账号是否有 DDL 权限、目标库 `ods` 是否存在、属性与 Doris 版本兼容。
+
+### 库前缀说明
+- 生成表名使用应用配置的库名（`app.doris.database`），默认 `ods`，最终表名：``<库>`.`ods_<库>_<表>_<后缀>``
 
 ## 安全与配置
 - `application.yml` 不会被提交到 Git（见 `.gitignore`）；提供 `application-example.yml` 作为模板
