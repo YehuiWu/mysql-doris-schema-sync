@@ -1,0 +1,60 @@
+server:
+  port: 8080
+
+spring:
+  thymeleaf:
+    cache: false
+
+app:
+  mysql:
+    pxs:
+      host: 192.168.0.40
+      port: 3306
+      username: CHANGE_ME
+      password: CHANGE_ME
+    pos:
+      host: 192.168.0.40
+      port: 3314
+      username: CHANGE_ME
+      password: CHANGE_ME
+    xja:
+      host: 192.168.0.40
+      port: 3312
+      username: CHANGE_ME
+      password: CHANGE_ME
+    dcs:
+      host: 192.168.0.40
+      port: 3308
+      username: CHANGE_ME
+      password: CHANGE_ME
+    pfm:
+      host: 192.168.0.40
+      port: 3306
+      username: CHANGE_ME
+      password: CHANGE_ME
+    ags:
+      host: 192.168.0.40
+      port: 3306
+      username: CHANGE_ME
+      password: CHANGE_ME
+    stl:
+      host: 192.168.0.40
+      port: 3309
+      username: CHANGE_ME
+      password: CHANGE_ME
+    pbi:
+      host: 192.168.0.40
+      port: 3306
+      username: CHANGE_ME
+      password: CHANGE_ME
+    clm:
+      host: 192.168.11.11
+      port: 3306
+      username: CHANGE_ME
+      password: CHANGE_ME
+  doris:
+    host: 192.168.11.50
+    port: 49010
+    database: ods
+    username: CHANGE_ME
+    password: CHANGE_ME

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>MySQL → Doris 建表助手</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; }
+    header { padding: 10px 16px; background: #1f2937; color: #fff; }
+    .container { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
+    .panel { border: 1px solid #ddd; border-radius: 6px; padding: 12px; }
+    .panel h3 { margin: 0 0 8px; }
+    label { display: block; margin-top: 8px; }
+    select, input[type="text"] { width: 100%; padding: 6px; margin-top: 4px; }
+    textarea { width: 100%; height: 460px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .cols { max-height: 160px; overflow:auto; border:1px solid #eee; padding:6px; }
+    .actions { display:flex; gap:8px; margin-top:8px; }
+    button { padding: 6px 10px; }
+  </style>
+  <script>
+    async function fetchJSON(url) { const r = await fetch(url); return await r.json(); }
+    async function fetchText(url) { const r = await fetch(url); return await r.text(); }
+    async function postText(url, data) { const r = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(data)}); return await r.text(); }
+    let state = { ds:null, db:null, table:null, columns:[], cfg:{ partitioned:false, partitionType:'DAY', syncType:'di', uniqueKeys:[], distributionKey:null, sequenceCol:null, indexes:[], tableComment:'', fields:[] } };
+    async function init() {
+      const ds = await fetchJSON('/api/mysql/datasources');
+      const dsSel = document.getElementById('ds');
+      dsSel.innerHTML = '<option value="">选择数据源</option>' + Array.from(ds).map(x=>`<option>${x}</option>`).join('');
+      dsSel.onchange = async () => { state.ds = dsSel.value; await loadDatabases(); };
+      document.getElementById('db').onchange = async () => { state.db = document.getElementById('db').value; await loadTables(); };
+      document.getElementById('table').onchange = async () => { state.table = document.getElementById('table').value; await loadColumns(); };
+      document.getElementById('partitioned').onchange = () => { state.cfg.partitioned = document.getElementById('partitioned').checked; updatePreview(); };
+      document.getElementById('ptype').onchange = () => { state.cfg.partitionType = document.getElementById('ptype').value; updatePreview(); };
+      document.getElementById('stype').onchange = () => { state.cfg.syncType = document.getElementById('stype').value; updatePreview(); };
+      document.getElementById('tableComment').oninput = () => { state.cfg.tableComment = document.getElementById('tableComment').value; updatePreview(); };
+      document.getElementById('exec').onclick = async () => { const sql = document.getElementById('sql').value; const res = await fetch('/api/doris/sql',{ method:'POST', headers:{ 'Content-Type':'text/plain' }, body: sql}); const j = await res.json(); alert(j.success ? '执行成功' : ('执行失败: ' + j.message)); };
+      document.getElementById('copy').onclick = () => { const ta = document.getElementById('sql'); ta.select(); document.execCommand('copy'); };
+    }
+    async function loadDatabases() {
+      const dbs = await fetchJSON(`/api/mysql/databases?ds=${state.ds}`);
+      const dbSel = document.getElementById('db');
+      dbSel.innerHTML = '<option value="">选择库</option>' + dbs.map(x=>`<option>${x}</option>`).join('');
+    }
+    async function loadTables() {
+      const tbs = await fetchJSON(`/api/mysql/tables?ds=${state.ds}&db=${state.db}`);
+      const tbSel = document.getElementById('table');
+      tbSel.innerHTML = '<option value="">选择表</option>' + tbs.map(x=>`<option>${x}</option>`).join('');
+    }
+    function renderColumns() {
+      const box = document.getElementById('cols');
+      box.innerHTML = state.columns.map(c=>`<div><input type="checkbox" data-col="${c.name}" class="uk"> ${c.name} (${c.dataType})</div>`).join('');
+      document.querySelectorAll('.uk').forEach(el=>{ el.onchange = ()=>{ const col = el.getAttribute('data-col'); if (el.checked) { if (!state.cfg.uniqueKeys.includes(col)) state.cfg.uniqueKeys.push(col); } else { state.cfg.uniqueKeys = state.cfg.uniqueKeys.filter(x=>x!==col); } updatePreview(); }; });
+      const fbox = document.getElementById('fields');
+      fbox.innerHTML = state.columns.map(c=>`<label><input type="checkbox" class="fld" data-col="${c.name}" checked> ${c.name}</label>`).join('');
+      state.cfg.fields = state.columns.map(c=>c.name);
+      document.querySelectorAll('.fld').forEach(el=>{ el.onchange=()=>{ const col = el.getAttribute('data-col'); if (el.checked) { if (!state.cfg.fields.includes(col)) state.cfg.fields.push(col); } else { state.cfg.fields = state.cfg.fields.filter(x=>x!==col); } updatePreview(); }; });
+      const distSel = document.getElementById('dist');
+      distSel.innerHTML = '<option value="">选择分布列</option>' + state.columns.map(c=>`<option>${c.name}</option>`).join('');
+      distSel.onchange = ()=>{ state.cfg.distributionKey = distSel.value || null; updatePreview(); };
+      const seqSel = document.getElementById('seq');
+      seqSel.innerHTML = '<option value="">选择Sequence列</option>' + state.columns.map(c=>`<option>${c.name}</option>`).join('');
+      seqSel.onchange = ()=>{ state.cfg.sequenceCol = seqSel.value || null; updatePreview(); };
+      const idxSel = document.getElementById('idx');
+      idxSel.innerHTML = state.columns.map(c=>`<label><input type="checkbox" class="ix" data-col="${c.name}"> ${c.name}</label>`).join('');
+      document.querySelectorAll('.ix').forEach(el=>{ el.onchange=()=>{ const col = el.getAttribute('data-col'); if (el.checked) { if (!state.cfg.indexes.includes(col)) state.cfg.indexes.push(col); } else { state.cfg.indexes = state.cfg.indexes.filter(x=>x!==col); } updatePreview(); }; });
+    }
+    async function loadColumns() {
+      state.columns = await fetchJSON(`/api/mysql/table-columns?ds=${state.ds}&db=${state.db}&table=${state.table}`);
+      const pks = state.columns.filter(c=>c.isPrimaryKey).map(c=>c.name);
+      state.cfg.uniqueKeys = pks.length>0 ? pks : [];
+      const distSel = document.getElementById('dist');
+      state.cfg.distributionKey = state.cfg.uniqueKeys.length>0 ? state.cfg.uniqueKeys[0] : null;
+      const seqCandidates = ['insert_time','update_time','ts'];
+      const seqFound = state.columns.map(c=>c.name).find(n=>seqCandidates.includes(n));
+      state.cfg.sequenceCol = seqFound || null;
+      try {
+        const tComment = await fetchText(`/api/mysql/table-comment?ds=${state.ds}&db=${state.db}&table=${state.table}`);
+        if (!state.cfg.tableComment || state.cfg.tableComment.length===0) {
+          state.cfg.tableComment = tComment || '';
+          document.getElementById('tableComment').value = state.cfg.tableComment;
+        }
+      } catch(e) {}
+      renderColumns();
+      updatePreview();
+    }
+    async function updatePreview() {
+      if (!state.ds || !state.db || !state.table) { alert('请先选择数据源、库和表'); return; }
+      const payload = { mysqlDs: state.ds, mysqlDb: state.db, mysqlTable: state.table, partitioned: state.cfg.partitioned, partitionType: state.cfg.partitionType, syncType: state.cfg.syncType, uniqueKeys: state.cfg.uniqueKeys, distributionKey: state.cfg.distributionKey, sequenceCol: state.cfg.sequenceCol, indexes: state.cfg.indexes, tableComment: state.cfg.tableComment, fields: state.cfg.fields };
+      try {
+        const sql = await postText('/api/sql/generate', payload);
+        document.getElementById('sql').value = sql;
+      } catch(e) {
+        alert('生成SQL失败');
+      }
+    }
+    window.onload = init;
+  </script>
+  </head>
+<body>
+  <header>
+    <h2>MySQL → Doris 建表助手</h2>
+  </header>
+  <div class="container">
+    <div class="panel">
+      <h3>MySQL 数据源</h3>
+      <label>数据源<select id="ds"></select></label>
+      <label>库<select id="db"></select></label>
+      <label>表<select id="table"></select></label>
+      <h4>Unique Key 字段</h4>
+      <div class="cols" id="cols"></div>
+      <h4>字段选择（默认全选）</h4>
+      <div class="cols" id="fields"></div>
+    </div>
+    <div class="panel">
+      <h3>Doris 表配置</h3>
+      <label><input type="checkbox" id="partitioned"/> 分区表</label>
+      <div class="row">
+        <div>
+          <label>分区类型<select id="ptype"><option value="DAY">DAY</option><option value="MONTH">MONTH</option><option value="YEAR">YEAR</option></select></label>
+        </div>
+        <div>
+          <label>同步方式<select id="stype"><option value="di">di</option><option value="df">df</option><option value="mi">mi</option><option value="mf">mf</option></select></label>
+        </div>
+      </div>
+      <label>分布列<select id="dist"></select></label>
+      <label>Sequence列<select id="seq"></select></label>
+      <h4>倒排索引</h4>
+      <div id="idx" class="cols"></div>
+      <label>表注释<input type="text" id="tableComment"/></label>
+    </div>
+  </div>
+  <div class="panel" style="margin: 0 12px 12px 12px;">
+    <h3>SQL 预览与执行</h3>
+    <textarea id="sql"></textarea>
+    <div class="actions">
+      <button id="preview" onclick="updatePreview()">预览SQL</button>
+      <button id="copy">复制SQL</button>
+      <button id="exec">执行到Doris</button>
+    </div>
+  </div>
+</body>
+</html>

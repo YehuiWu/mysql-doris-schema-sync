@@ -1,0 +1,13 @@
+target/
+.idea/
+*.iml
+out/
+bin/
+build/
+.DS_Store
+*.log
+*.class
+*.jar
+*.war
+*.ear
+src/main/resources/application.yml
